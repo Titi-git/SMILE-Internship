@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Carte Interactive avec Capteurs</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Poppins', sans-serif;
+            
+        }
+
+        /* Modal styling */
+        .modal {
+            width: 100%;
+            height: 100%;
+            background-color: rgb(0,0,0);
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+
+            background-color: #6e6e6e2c;
+            margin: 0% auto;
+            padding: 10px;
+            border: 1px solid #888;
+            width: 50%;
+            border-radius: 10px;
+            
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1); /* Small outline on top of the background color */
+        }
+        #details {
+            display: flex;
+            flex-direction: column;
+
+            
+            width: 40%;
+            height: 100%;
+            padding: 20px;
+            margin: 0px 0;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1); /* Small outline on top of the background color */
+
+            overflow-y: auto;
+            background-color: #8bcfe4; /* Example background color */
+
+        }
+        .container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 10px; /* Optional: apply rounded borders to the image */
+        }
+        .chart-container {
+            border-radius: 10px; /* Rounded borders */
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            background-color: #a8d3e4;
+            margin: 10px 0;
+            box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.2); /* Small outline on top of the background color */
+
+        }
+        canvas {
+            border-radius: 15px; /* Rounded borders */
+            width: 100% !important; /* Assurez-vous que le canvas occupe toute la largeur de son conteneur */
+            height: auto !important; /* Assurez-vous que la hauteur s'ajuste automatiquement */
+            
+        }
+        .alert {
+            color: red;
+            font-size: 24px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="details">
+        <img src="static/icons/Logo_Smile.png" alt="Smile Logo" />
+        <h2>Sensor details</h2>
+            <div id="fireModal" class="modal-content">
+                <span class="close">&times;</span>
+                <div class="alert">
+                    <p>ATTENTION FIRE</p>
+                </div>
+                <div class="container">
+                    <img src="static/icons/fireforest.gif" alt="fire forest" />
+                    
+                </div>
+            </div>
+        <div id="sensor-details">
+            <p>Click on a sensor to show the details.</p>
+        </div>
+    </div>
+    <div id="map">
+    </div>
+    <audio id="beepSound" src="/static/icons/beep-01a.mp3" preload="auto"></audio>
+    <script>
+        var map = L.map('map').setView([48.8566, 2.3522], 6);
+        var markers = {};  // Pour stocker les marqueurs par sensor_id
+        var modal = document.getElementById("fireModal");
+        var span = document.getElementsByClassName("close")[0];
+        var beepSound = document.getElementById("beepSound");
+        var beepInterval;
+
+        // Open modal function
+        function openModal() {
+            modal.style.display = "block";
+        }
+
+        // Close modal function
+        function closeModal() {
+            modal.style.display = "none";
+        }
+
+        // Close the modal when the user clicks on <span> (x)
+        span.onclick = function() {
+            closeModal();
+        }
+
+        // Close the modal when the user clicks anywhere outside of the modal
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        $.get('/data', function(data) {
+            var markerColor = data.fire_risk > 80 ? 'red' : 'green';
+            var marker = L.marker([data.lat, data.lon], {
+                icon: L.icon({
+                    iconUrl: '/static/icons/leaf.png',
+                    iconSize: [45, 45],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    tooltipAnchor: [16, -28],
+                    shadowSize: [41, 41]
+                })
+            }).addTo(map);
+            marker.bindPopup('<a href="#" onclick="loadSensorDetails(1)">Demonstration SENSOR</a>');
+            markers[1] = marker;
+            // Check fire risk for initial data
+            if (data.fire_risk > 80) {
+                openModal();
+            } else {
+                closeModal();
+            }
+        });
+
+        function loadSensorDetails(sensor_id) {
+            $.get('/sensor/' + sensor_id + '/data', function(data) {
+                //var alertMessage = data.fire_risk.some(d => d[1] > 80) ? '<div class="alert">ATTENTION FIRE</div>' : '';
+                //${alertMessage}
+                $('#sensor-details').html(`
+                    
+                    <div class="chart-container" id="fireRisk-container">
+                        <canvas id="fireRiskChart"></canvas>
+                    </div>
+                    <div class="chart-container" id="temperature-container">
+                        <canvas id="temperatureChart"></canvas>
+                    </div>
+                    <div class="chart-container" id="humidity-container">
+                        <canvas id="humidityChart"></canvas>
+                    </div>
+                `);
+                
+                updateCharts(sensor_id);
+                setInterval(function() {
+                    updateCharts(sensor_id);
+                }, 1000);
+            });
+        }
+
+        function updateCharts(sensor_id) {
+            $.get('/sensor/' + sensor_id + '/data', function(data) {
+                if (data.error) {
+                    console.error(data.error);
+                    return;
+                }          
+
+                var temperatureData = data.temperature.map(d => [new Date(d[0]).toLocaleString(), d[1]]);
+                var temperatureLabels = temperatureData.map(d => d[0]);
+                var temperatureValues = temperatureData.map(d => d[1]);
+
+                var tempChart = Chart.getChart('temperatureChart');
+                if (tempChart) {
+                    tempChart.data.labels = temperatureLabels;
+                    tempChart.data.datasets[0].data = temperatureValues;
+                    tempChart.update();
+                } else {
+                    new Chart(document.getElementById('temperatureChart').getContext('2d'), {
+                        type: 'line',
+                        data: {
+                            labels: temperatureLabels,
+                            datasets: [{
+                                label: 'Température',
+                                data: temperatureValues,
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                fill: false
+                            }]
+                        }
+                    });
+                }
+
+                var humidityData = data.humidity.map(d => [new Date(d[0]).toLocaleString(), d[1]]);
+                var humidityLabels = humidityData.map(d => d[0]);
+                var humidityValues = humidityData.map(d => d[1]);
+
+                var humChart = Chart.getChart('humidityChart');
+                if (humChart) {
+                    humChart.data.labels = humidityLabels;
+                    humChart.data.datasets[0].data = humidityValues;
+                    humChart.update();
+                } else {
+                    new Chart(document.getElementById('humidityChart').getContext('2d'), {
+                        type: 'line',
+                        data: {
+                            labels: humidityLabels,
+                            datasets: [{
+                                label: 'Humidité',
+                                data: humidityValues,
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                fill: false
+                            }]
+                        }
+                    });
+                }
+
+                var fireRiskData = data.fire_risk.map(d => [new Date(d[0]).toLocaleString(), d[1]]);
+                var fireRiskLabels = fireRiskData.map(d => d[0]);
+                var fireRiskValues = fireRiskData.map(d => d[1]);
+
+                var fireRiskChart = Chart.getChart('fireRiskChart');
+                if (fireRiskChart) {
+                    fireRiskChart.data.labels = fireRiskLabels;
+                    fireRiskChart.data.datasets[0].data = fireRiskValues;
+                    fireRiskChart.update();
+                } else {
+                    new Chart(document.getElementById('fireRiskChart').getContext('2d'), {
+                        type: 'line',
+                        data: {
+                            labels: fireRiskLabels,
+                            datasets: [{
+                                label: 'Risque de Feu',
+                                data: fireRiskValues,
+                                borderColor: 'rgba(100, 100, 100, 1)',//fireRiskData.map(v => v[1] > 80 ? 'rgba(255, 0, 0, 1)' : 'rgba(0, 255, 0, 1)'),
+                                pointStyle: 'circle',
+                                pointRadius: 10,
+                                fill: false
+                            }, {
+                                label: 'No Fire',
+                                data: new Array(fireRiskData.length).fill(80),
+                                borderColor: 'rgba(0, 200, 0, 0.8)',
+                                backgroundColor: 'rgba(0, 200, 0, 0.8)',
+                                borderDash: [10, 5],
+                                fill: true
+                            }, {
+                                label: 'Fire Zone',
+                                data: new Array(fireRiskData.length).fill(100),
+                                borderColor: 'rgba(255, 0, 0, 0.5)',
+                                backgroundColor: 'rgba(255, 0, 0, 0.5)',
+                                borderDash: [10, 5],
+                                fill: true
+                            }]
+                        }
+                    });
+                }
+
+                // Mise à jour de la couleur du marqueur en fonction du niveau de risque
+                var markerColor = fireRiskData[fireRiskData.length - 1][1] < 80 ? 'leaf' : fireRiskData[fireRiskData.length - 1][1] > 80 && fireRiskData[fireRiskData.length - 1][1] < 90 ? 'flame(1)' : 'flame';
+                var marker = markers[sensor_id];
+                if (marker) {
+                    marker.setIcon(L.icon({
+                        //get the local icons in the icons/ folder
+                        iconUrl : '/static/icons/' + markerColor + '.png',
+                        //iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-' + markerColor + '.png',
+                        iconSize: [45, 45],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        tooltipAnchor: [16, -28],
+                        shadowSize: [41, 41]
+                    }));
+                }
+                // Show or hide the modal based on fire risk
+                if (fireRiskData[fireRiskData.length - 1][1] > 80) {
+                    openModal();
+                    beepSound.play();
+                } else {
+                    closeModal();
+                    beepSound.stop();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
