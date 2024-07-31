@@ -3,8 +3,9 @@ import serial
 import threading
 from datetime import datetime
 import pandas as pd
+import time
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 
 # Dictionnaire pour stocker les données du capteur
 sensor_data = {
@@ -21,12 +22,13 @@ stop_event = threading.Event()
 
 def read_serial_data(stop_event):
     buffer = ""
+    ser = None
     try:
-        if ser.in_waiting > 0:
-            ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
-            print("Connected to /dev/ttyUSB0")
-            while not stop_event.is_set():
-                try:
+        ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
+        print("Connected to /dev/ttyUSB0")
+        while not stop_event.is_set():
+            try:
+                if ser.in_waiting > 0:
                     data = ser.read(ser.in_waiting or 1).decode('utf-8', errors='ignore')
                     if data:
                         buffer += data
@@ -45,7 +47,6 @@ def read_serial_data(stop_event):
                                         fire_risk = float(parts[3])
                                         current_time = datetime.now()
 
-                                        # Ajouter les nouvelles données au dictionnaire
                                         if len(sensor_data['date']) >= 10:
                                             sensor_data['date'].pop(0)
                                             sensor_data['temperature'].pop(0)
@@ -56,22 +57,34 @@ def read_serial_data(stop_event):
                                         sensor_data['temperature'].append(temperature)
                                         sensor_data['humidity'].append(humidity)
                                         sensor_data['fire_risk'].append(fire_risk)
-
-                                        # Afficher les données actuelles du dictionnaire
-                                        #print(sensor_data)
                                     except ValueError:
                                         print(f"Invalid data format: {line}")
                                 else:
                                     print(f"Invalid data frame: {line}")
+                            time.sleep(0.1)
                     ser.reset_input_buffer()
-                except serial.SerialException as e:
-                    print(f"Error reading line from serial port: {e}")
-                    stop_event.set()
-                except Exception as e:
-                    print(f"Unexpected error: {e}")
+                    time.sleep(0.1)
+            except serial.SerialException as e:
+                print(f"Error reading line from serial port: {e}")
+                ser.close()
+                ser = None
+                while ser is None:
+                    try:
+                        ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
+                        print("Reconnected to /dev/ttyUSB0")
+                    except serial.SerialException:
+                        print("Failed to reconnect to /dev/ttyUSB0. Retrying...")
+                        time.sleep(5)
+            except Exception as e:
+                print(f"Unexpected error: {e}")
     except serial.SerialException as e:
         print(f"Serial exception: {e}")
         print("Failed to connect to /dev/ttyUSB0.")
+    finally:
+        if ser and ser.is_open:
+            ser.close()
+        print("Stopped reading from /dev/ttyUSB0")
+
 
 @app.route('/')
 def index():
